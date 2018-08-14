@@ -34,6 +34,7 @@ def tiltCorrect(rawMag, rawG):
     h = rMat @ pMat @ mag
     return [h[0],h[1]]
 
+
 class state(object):
     'takes sensor data and maintains a state estimate'
     def __init__(self):
@@ -51,16 +52,36 @@ class state(object):
         self.Y = np.array([0,0,0,0,0,0]).reshape([6,1])
         self.time = 0
         self.alt = 0
+        self.dt = 1
+
+        self.windSpeed = []
+        for i in range(201):
+            self.windSpeed.append([i * 100, 0, 0, 0])
+
+        
         #initialize IMU and GPS objects
         self.mpu = MPU9250.MPU9250()
         self.gps = MicropyGPS()
-        #implement: destination in external file
+##        #implement: destination coordinates in external file
+        #implement: retrieve instrument variance from external file
 
     def Amatrix(self, dt = 1, theta = 0):
+        'updates A matrix for time elapsed'
         self.A = np.eye(6)
         for i in range(3):
-            self.A[i][i+3] = dt
+            self.A[i][i+3] = self.dt
 
+    def Bmatrix(self, alt):
+        'generates B matrix to correct for wind drift'
+        i = alt // 100
+        v = self.windSpeed[i][1:3]
+        u = np.array([[0,0,0, v[0], v[1], 0]]).T
+        B = np.zeros([6,6])
+        for k in [3,4]:
+            B[k-3][k] = self.dt
+            B[k][k] = 1
+        return B @ u
+                
     def kFilter(self, Xprev, Pprev, A, Bu, R, Y):
         'performs a Kalman filter and updates the state/covariance vectors'
         I = np.eye(6)
@@ -78,6 +99,16 @@ class state(object):
         self.X = X
         self.P = P
 
+    def logError(self):
+        err = (self.X - self.Y).T
+        f = open('error.csv', 'a')
+        f.write('timestamp,{}:{}:{},'.format(self.gps.timestamp[0], self.gps.timestamp[1], self.gps.timestamp[2]))
+        f.write('seconds in flight,{},error,'.format(self.time))
+        for i in range(6):
+            f.write('{},'.format(err[0][i]))
+        f.write('{}\n'.format(err[0][5]))
+        f.close()
+        
     def measure(self):
         'takes measurements and fills Y vector'
         #read IMU
@@ -87,7 +118,6 @@ class state(object):
         accel = np.array([a['x'], a['y'], a['z']])
 
         self.dir = tiltCorrect(mag,accel)
-        #needs more processing
         
         #read GPS
         data = [0,0]
@@ -104,9 +134,12 @@ class state(object):
         alt = self.gps.altitude
 
         t = self.gps.timestamp[0] * 3600 + self.gps.timestamp[1] * 60 + self.gps.timestamp[2]
-        self.dt = t - self.time
+        dt = t - self.time
+        if dt != 0:
+            self.dt = dt
         self.time = t
-        
+
+        #gps.speed is (knots, mph, km/h)
         v = self.gps.speed[2] * (1000/3600) #convert to m/s
         theta = -self.gps.course * pi/180
         vx = v * cos(theta)
@@ -116,5 +149,7 @@ class state(object):
         except:
                 vz = 0
         self.Y = np.array([lat, long, alt, vx, vy, vz]).reshape([6,1])
-        #not finished
+        #NEED: Retrieve wind velocity for B matrix
+                #Calculation of B matrix
+                #Error estimation + logging
 
