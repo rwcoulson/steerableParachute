@@ -46,9 +46,11 @@ class state(object):
                     s[i] = eval(s[i])
             file.close()
         except:
-            self.X = np.array([0,0,0,0,0,0])
+            self.X = np.array([0,0,0,0,0,0]).reshape([6,1])
         self.P = np.ones([6,6]) * 1000
-        self.Y = [0,0,0,0,0,0]
+        self.Y = np.array([0,0,0,0,0,0]).reshape([6,1])
+        self.time = 0
+        self.alt = 0
         #initialize IMU and GPS objects
         self.mpu = MPU9250.MPU9250()
         self.gps = MicropyGPS()
@@ -59,22 +61,24 @@ class state(object):
         for i in range(3):
             self.A[i][i+3] = dt
 
-    def kFilter(Xprev, Pprev, A, Bu, R, Y):
+    def kFilter(self, Xprev, Pprev, A, Bu, R, Y):
         'performs a Kalman filter and updates the state/covariance vectors'
         I = np.eye(6)
-        Xp = A @ Xprev + Bu
+        Xp = (A @ Xprev).reshape([6,1]) + Bu
         Pp = A @ Pprev @ A.T
+        K = np.zeros([6,6])
         for i in range(len(Pp)):
             for j in range(len(Pp[0])):
-                if I[i][j] == 0:
-                    Pp[i][j] == 0
-        K = Pp / (Pp + R)
+                if A[i][j] == 0:
+                    Pp[i][j] = 0
+                else:
+                    K[i][j] = Pp[i][j] / (Pp[i][j] + R[i][j])
         X = Xp + K @ (Y - Xp)
         P = (I - K) @  Pp
         self.X = X
         self.P = P
 
-    def measure():
+    def measure(self):
         'takes measurements and fills Y vector'
         #read IMU
         m = self.mpu.readMagnet()
@@ -86,27 +90,31 @@ class state(object):
         #needs more processing
         
         #read GPS
-        gpsData = [0,0]
-        s = serial.Serial('/dev/ttyS0', 4800, timeout = 0)
+        data = [0,0]
+        ser = serial.Serial('/dev/ttyS0', 4800, timeout = 0)
         for i in [0,1]:
-            data[i] = s.readline().decode('ascii').strip()
+            data[i] = ser.readline().decode('ascii').strip()
             for char in data[i]:
-                gps.update(char)
+                self.gps.update(char)
         ser.close()
-        
+       
         #assume Northern + Western hemispheres
-        lat = (gps.latitude[0] + (gps.latitude[1] / 60))
-        long = - ( gps.longitude[0] + (gps.longitude[1] / 60))
-        alt = gps.altitude
+        lat = (self.gps.latitude[0] + (self.gps.latitude[1] / 60))
+        long = - ( self.gps.longitude[0] + (self.gps.longitude[1] / 60))
+        alt = self.gps.altitude
 
-        t = gps.timestamp[0] * 3600 + gps.timestamp[1] * 60 + gps.timestamp[2]
+        t = self.gps.timestamp[0] * 3600 + self.gps.timestamp[1] * 60 + self.gps.timestamp[2]
         self.dt = t - self.time
         self.time = t
         
-        v = gps.speed[2] * (1000/3600) #convert to m/s
-        theta = -gps.course * pi/180
+        v = self.gps.speed[2] * (1000/3600) #convert to m/s
+        theta = -self.gps.course * pi/180
         vx = v * cos(theta)
         vy = v * sin(theta)
-        vz = (alt - self.alt) / dt
-        self.Y = [lat, long, alt, vx, vy, vz]
+        try:
+                vz = (alt - self.alt) / self.dt
+        except:
+                vz = 0
+        self.Y = np.array([lat, long, alt, vx, vy, vz]).reshape([6,1])
         #not finished
+
