@@ -6,6 +6,8 @@ from micropyGPS import MicropyGPS
 
 r = 6.371e6
 
+hemisphere = {'N': 1, 'S': -1, 'E':1, 'W':-1}
+
 def rotMatrix(axis, angle):
     'returns a rotation matrix about the given axis for the given angle'
     if axis == 'x' or axis == 'pitch':
@@ -35,6 +37,14 @@ def tiltCorrect(rawMag, rawG):
     return [h[0],h[1]]
 
 
+def gps2m(target, coord):
+    lat = coord[0]
+    dlat = coord[0] - target[0]
+    dlong = coord[1] - target[1]
+    y = pi * r * (dlat / 180)
+    x = pi * r * cos(lat * pi / 180) * (dlong/180)
+    return [x,y]
+
 class state(object):
     'takes sensor data and maintains a state estimate'
     def __init__(self):
@@ -58,12 +68,34 @@ class state(object):
         for i in range(201):
             self.windSpeed.append([i * 100, 0, 0, 0])
 
+        #initialize the error file
+        f = open('error.csv','w')
+        f.write("timestamp,seconds in flight,x,y,z,x',y',z'\n")
+        f.close()
+
         
         #initialize IMU and GPS objects
         self.mpu = MPU9250.MPU9250()
         self.gps = MicropyGPS()
-##        #implement: destination coordinates in external file
-        #implement: retrieve instrument variance from external file
+
+        #destination coordinates
+        self.target = [0,0]
+        f = open('target.csv', 'r')
+        contents = f.read()
+        f.close()
+        contents = contents.split(',')
+        for i in range(len(contents)):
+            self.target[i] = eval(contents)
+        
+##        #implement: retrieve instrument variance from external file
+        f = open('instVariance.csv', 'r')
+        R = f.readlines()
+        f.close()
+        for i in range(len(R)):
+            R[i] = R[i].strip().split(',')
+            for j in range(len(R[i])):
+                R[i][j] = eval(R[i][j])
+        self.R = np.array(R)
 
     def Amatrix(self, dt = 1, theta = 0):
         'updates A matrix for time elapsed'
@@ -100,14 +132,26 @@ class state(object):
         self.P = P
 
     def logError(self):
+        'logs the error into a file'
         err = (self.X - self.Y).T
         f = open('error.csv', 'a')
-        f.write('timestamp,{}:{}:{},'.format(self.gps.timestamp[0], self.gps.timestamp[1], self.gps.timestamp[2]))
-        f.write('seconds in flight,{},error,'.format(self.time))
-        for i in range(6):
+        f.write('{}:{}:{},'.format(self.gps.timestamp[0], self.gps.timestamp[1], self.gps.timestamp[2]))
+        f.write('{},'.format(self.time))
+        for i in range(5):
             f.write('{},'.format(err[0][i]))
         f.write('{}\n'.format(err[0][5]))
         f.close()
+
+    def logWind(self):
+        'logs the components of wind speed at 100m increment of altitude, averaged'
+        k = self.X[2][0] // 100
+        vxp = self.windSpeed[k][1]
+        vyp = self.windSpeed[k][2]
+        N = self.windSpeed[k][3] + 1
+        
+        self.windSpeed[k][1] = (self.X[3][0] + vxp) / N
+        self.windSpeed[k][2] = (self.X[4][0] + vyp) / N
+        self.windSpeed[k][3] = N        
         
     def measure(self):
         'takes measurements and fills Y vector'
@@ -129,10 +173,16 @@ class state(object):
         ser.close()
        
         #assume Northern + Western hemispheres
-        lat = (self.gps.latitude[0] + (self.gps.latitude[1] / 60))
-        long = - ( self.gps.longitude[0] + (self.gps.longitude[1] / 60))
+        lat = (self.gps.latitude[0] + (self.gps.latitude[1] / 60)) * hemisphere[self.gps.latitude[2]]
+        long = ( self.gps.longitude[0] + (self.gps.longitude[1] / 60)) * hemisphere[self.gps.longitude[2]]
         alt = self.gps.altitude
 
+        #convert to xyz
+        xy = gps2m(self.target, [lat,long])
+        x = xy[0]
+        y = xy[1]
+
+        #find time elapsed
         t = self.gps.timestamp[0] * 3600 + self.gps.timestamp[1] * 60 + self.gps.timestamp[2]
         dt = t - self.time
         if dt != 0:
@@ -148,8 +198,5 @@ class state(object):
                 vz = (alt - self.alt) / self.dt
         except:
                 vz = 0
-        self.Y = np.array([lat, long, alt, vx, vy, vz]).reshape([6,1])
-        #NEED: Retrieve wind velocity for B matrix
-                #Calculation of B matrix
-                #Error estimation + logging
+        self.Y = np.array([x, y, alt, vx, vy, vz]).reshape([6,1])
 
