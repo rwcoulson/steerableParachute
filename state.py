@@ -90,7 +90,7 @@ class state(object):
         self.gps = MicropyGPS()
 
         #destination coordinates
-        self.target = csvReadMat('target.csv')
+        self.target = csvReadMat('target.csv').reshape([2])
         
 ##      #set instrument variance
         self.R = csvReadMat('instVariance.csv')
