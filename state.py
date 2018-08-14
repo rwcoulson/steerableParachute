@@ -36,6 +36,18 @@ def tiltCorrect(rawMag, rawG):
     h = rMat @ pMat @ mag
     return [h[0],h[1]]
 
+def csvReadMat(filename):
+    mat = []
+    f = open(filename,'r')
+    data = f.readlines()
+    f.close()
+    for i in range(len(data)):
+        data[i] = data[i].strip().split(',')
+        for j in range(len(data[i])):
+            data[i][j] = eval(data[i][j])
+    return np.array(data)
+            
+
 
 def gps2m(target, coord):
     lat = coord[0]
@@ -72,30 +84,16 @@ class state(object):
         f = open('error.csv','w')
         f.write("timestamp,seconds in flight,x,y,z,x',y',z'\n")
         f.close()
-
         
         #initialize IMU and GPS objects
         self.mpu = MPU9250.MPU9250()
         self.gps = MicropyGPS()
 
         #destination coordinates
-        self.target = [0,0]
-        f = open('target.csv', 'r')
-        contents = f.read()
-        f.close()
-        contents = contents.split(',')
-        for i in range(len(contents)):
-            self.target[i] = eval(contents)
+        self.target = csvReadMat('target.csv')
         
-##        #implement: retrieve instrument variance from external file
-        f = open('instVariance.csv', 'r')
-        R = f.readlines()
-        f.close()
-        for i in range(len(R)):
-            R[i] = R[i].strip().split(',')
-            for j in range(len(R[i])):
-                R[i][j] = eval(R[i][j])
-        self.R = np.array(R)
+##      #set instrument variance
+        self.R = csvReadMat('instVariance.csv')
 
     def Amatrix(self, dt = 1, theta = 0):
         'updates A matrix for time elapsed'
