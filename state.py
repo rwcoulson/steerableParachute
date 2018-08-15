@@ -3,10 +3,16 @@ import numpy as np
 import serial
 import FaBo9Axis_MPU9250 as MPU9250
 from micropyGPS import MicropyGPS
+from time import sleep
+import wiringpi as wpi
 
 r = 6.371e6
 
 hemisphere = {'N': 1, 'S': -1, 'E':1, 'W':-1}
+
+wpi.wiringPiSetupGpio()
+wpi.pinMode(12,1)
+
 
 def rotMatrix(axis, angle):
     'returns a rotation matrix about the given axis for the given angle'
@@ -37,6 +43,7 @@ def tiltCorrect(rawMag, rawG):
     return [h[0],h[1]]
 
 def csvReadMat(filename):
+    'extracts a numpy matrix stored in a csv file'
     mat = []
     f = open(filename,'r')
     data = f.readlines()
@@ -47,15 +54,32 @@ def csvReadMat(filename):
             data[i][j] = eval(data[i][j])
     return np.array(data)
             
-
+def csvWrite(array, filename):
+    'writes a list or array to a csv file
+    f = open(filename, 'w')
+    for i in range(len(array)):
+        if type(array[i] == list or array[i] == np.ndarray):
+            for j in range(len(array[i])-1):
+                f.write('{},'.format(array[i][j]))
+            f.write('{}\n'.format(array[i][-1]))
+        else:
+            f.write('{}\n'.format(array[i]))
+    f.close()
 
 def gps2m(target, coord):
+    '''converts gps coordinates to an x-y-z coordinate system
+        utilizing arc-length formulas'''
     lat = coord[0]
-    dlat = coord[0] - target[0]
-    dlong = coord[1] - target[1]
+    dlat = target[0] - coord[0]
+    dlong = target[1] - coord[1]
     y = pi * r * (dlat / 180)
     x = pi * r * cos(lat * pi / 180) * (dlong/180)
     return [x,y]
+
+def initError()    #initialize the error file
+    f = open('error.csv','w')
+    f.write("timestamp,seconds in flight,x,y,z,x',y',z'\n")
+    f.close()
 
 class state(object):
     'takes sensor data and maintains a state estimate'
@@ -75,15 +99,13 @@ class state(object):
         self.time = 0
         self.alt = 0
         self.dt = 1
+        self.burstCount = 0
+        self.burst = False
 
         self.windSpeed = []
         for i in range(201):
-            self.windSpeed.append([i * 100, 0, 0, 0])
-
-        #initialize the error file
-        f = open('error.csv','w')
-        f.write("timestamp,seconds in flight,x,y,z,x',y',z'\n")
-        f.close()
+            #wind vector: [alt, vx, vy, sum_vx, sum_vy, N]
+            self.windSpeed.append([i * 100, 0, 0, 0, 0, 0])
         
         #initialize IMU and GPS objects
         self.mpu = MPU9250.MPU9250()
@@ -92,7 +114,7 @@ class state(object):
         #destination coordinates
         self.target = csvReadMat('target.csv').reshape([2])
         
-##      #set instrument variance
+        #set instrument variance
         self.R = csvReadMat('instVariance.csv')
 
     def Amatrix(self, dt = 1, theta = 0):
@@ -112,19 +134,19 @@ class state(object):
             B[k][k] = 1
         return B @ u
                 
-    def kFilter(self, Xprev, Pprev, A, Bu, R, Y):
+    def kFilter(self, Xprev, Pprev):
         'performs a Kalman filter and updates the state/covariance vectors'
         I = np.eye(6)
-        Xp = (A @ Xprev).reshape([6,1]) + Bu
-        Pp = A @ Pprev @ A.T
+        Xp = (self.A @ Xprev).reshape([6,1]) + self.Bmatrix(self.X[2][0])
+        Pp = self.A @ Pprev @ self.A.T
         K = np.zeros([6,6])
         for i in range(len(Pp)):
             for j in range(len(Pp[0])):
-                if A[i][j] == 0:
+                if self.A[i][j] == 0:
                     Pp[i][j] = 0
                 else:
-                    K[i][j] = Pp[i][j] / (Pp[i][j] + R[i][j])
-        X = Xp + K @ (Y - Xp)
+                    K[i][j] = Pp[i][j] / (Pp[i][j] + self.R[i][j])
+        X = Xp + K @ (self.Y - Xp)
         P = (I - K) @  Pp
         self.X = X
         self.P = P
@@ -142,17 +164,27 @@ class state(object):
 
     def logWind(self):
         'logs the components of wind speed at 100m increment of altitude, averaged'
-        k = self.X[2][0] // 100
-        vxp = self.windSpeed[k][1]
-        vyp = self.windSpeed[k][2]
-        N = self.windSpeed[k][3] + 1
+        #[alt, vx, vy, sum_vx, sum_vy, N]
+        k = 0
+        if self.X[2][0] >=0:
+            k = self.X[2][0] // 100
+
+        N = self.windSpeed[k][5]
+        vxp = self.windSpeed[k][1] * N
+        vyp = self.windSpeed[k][2] * N
+        N += 1
         
         self.windSpeed[k][1] = (self.X[3][0] + vxp) / N
         self.windSpeed[k][2] = (self.X[4][0] + vyp) / N
-        self.windSpeed[k][3] = N        
+        self.windSpeed[k][5] = N
+        self.windSpeed[k][3] = 0
+        self.windSpeed[k][4] = 0
+        for i in range(k):
+            self.windSpeed[k][3] += self.windSpeed[i][3]
+            self.windSpeed[k][4] += self.windSpeed[i][4]
         
     def measure(self):
-        'takes measurements and fills Y vector'
+        'takes measurements and populates Y(measurement) vector'
         #read IMU
         m = self.mpu.readMagnet()
         a = self.mpu.readAccel()
@@ -170,7 +202,7 @@ class state(object):
                 self.gps.update(char)
         ser.close()
        
-        #assume Northern + Western hemispheres
+        #extract lat, long into degrees
         lat = (self.gps.latitude[0] + (self.gps.latitude[1] / 60)) * hemisphere[self.gps.latitude[2]]
         long = ( self.gps.longitude[0] + (self.gps.longitude[1] / 60)) * hemisphere[self.gps.longitude[2]]
         alt = self.gps.altitude
@@ -188,13 +220,67 @@ class state(object):
         self.time = t
 
         #gps.speed is (knots, mph, km/h)
-        v = self.gps.speed[2] * (1000/3600) #convert to m/s
-        theta = -self.gps.course * pi/180
+        v = self.gps.speed[2] * (5/18) #convert to m/s
+        theta = -self.gps.course * pi/180 #convert to radians, correct for RHR
         vx = v * cos(theta)
         vy = v * sin(theta)
         try:
-                vz = (alt - self.alt) / self.dt
+                vz = (alt - self.X[2][0]) / self.dt
         except:
-                vz = 0
+                vz = self.X[5][0]
         self.Y = np.array([x, y, alt, vx, vy, vz]).reshape([6,1])
 
+    def ascentLoop(self):
+        'loop that runs during ascent'
+        self.measure()
+        self.logWind()
+        
+        if self.X[5][0] < 0:
+            self.burstCount += 1
+            if self.burstCount >= 10:
+                self.burst = True
+                self.burstCount = 0
+        else:
+            self.burstCount = 0
+
+        sleep(0.5)
+            
+
+    def descentLoop(self):
+        'loop that runs during descent'
+        self.measure()
+        self.Amatrix()
+        Bu = self.Bmatrix(self.X[2][0])
+        self.kFilter(self.X, self.P)
+               
+        if self.X[5][0] > 0:
+            self.burstCount -= 1
+            if self.burstCount <= -10:
+                self.burst = False
+                self.burstCount = 0
+        else:
+            self.burstCount = 0
+
+        sleep(0.5)
+
+    def acquireGPS(self):
+        'waits until GPS lock is acquired'
+        lock = False
+        while lock = False:
+            self.measure()
+            if self.gps.latitude[0:2] == (0, 0.0):
+                wpi.digitalWrite(12,1)
+                sleep(1)
+                wpi.digitalWrite(12,0)
+                sleep(1)
+            else:
+                lock = True
+                wpi.digitalWrite(12,1)
+
+
+##TO DO:
+        #   burst detect
+        #   integrate wind
+        #   instrument variance
+        #   indicator LED
+        
