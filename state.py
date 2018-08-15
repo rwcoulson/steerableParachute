@@ -39,7 +39,7 @@ def tiltCorrect(rawMag, rawG):
     rMat = rotMatrix('y',-roll)
     pMat = rotMatrix('x',-pitch)
     h = rMat @ pMat @ mag
-    return [h[0],h[1]]
+    return h
 
 def csvReadMat(filename):
     'extracts a numpy matrix stored in a csv file'
