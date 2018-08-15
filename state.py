@@ -55,7 +55,7 @@ def csvReadMat(filename):
     return np.array(data)
             
 def csvWrite(array, filename):
-    'writes a list or array to a csv file
+    'writes a list or array to a csv file'
     f = open(filename, 'w')
     for i in range(len(array)):
         if type(array[i] == list or array[i] == np.ndarray):
@@ -76,7 +76,7 @@ def gps2m(target, coord):
     x = pi * r * cos(lat * pi / 180) * (dlong/180)
     return [x,y]
 
-def initError()    #initialize the error file
+def initError():    #initialize the error file
     f = open('error.csv','w')
     f.write("timestamp,seconds in flight,x,y,z,x',y',z'\n")
     f.close()
@@ -266,7 +266,7 @@ class state(object):
     def acquireGPS(self):
         'waits until GPS lock is acquired'
         lock = False
-        while lock = False:
+        while lock == False:
             self.measure()
             if self.gps.latitude[0:2] == (0, 0.0):
                 wpi.digitalWrite(12,1)
