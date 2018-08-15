@@ -188,7 +188,7 @@ class state(object):
         m = self.mpu.readMagnet()
         a = self.mpu.readAccel()
         mag = np.array([[m['x'], m['y'], m['z']]]).T
-        accel = np.array([[a['x'], a['y'], a['z']]].T)
+        accel = np.array([[a['x'], a['y'], a['z']]]).T
 
         self.dir = tiltCorrect(mag,accel)
         
