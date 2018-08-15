@@ -32,11 +32,10 @@ def rotMatrix(axis, angle):
 def tiltCorrect(rawMag, rawG):
     '''outputs normalized 2D orientation in horizontal plane [E, N]
     inputs are 3D [x, y, z] vectors'''
-    procMag = [0, 0]
     mag = rawMag / np.linalg.norm(rawMag)
     g = rawG / np.linalg.norm(rawG)
-    roll = -asin(g[0])
-    pitch = -atan2(g[1],g[2])
+    roll = -asin(g[0][0])
+    pitch = -atan2(g[1][0],g[2][0])
     rMat = rotMatrix('y',-roll)
     pMat = rotMatrix('x',-pitch)
     h = rMat @ pMat @ mag
@@ -188,8 +187,8 @@ class state(object):
         #read IMU
         m = self.mpu.readMagnet()
         a = self.mpu.readAccel()
-        mag = np.array([m['x'], m['y'], m['z']])
-        accel = np.array([a['x'], a['y'], a['z']])
+        mag = np.array([[m['x'], m['y'], m['z']]]).T
+        accel = np.array([[a['x'], a['y'], a['z']]].T)
 
         self.dir = tiltCorrect(mag,accel)
         
