@@ -58,7 +58,7 @@ def csvWrite(array, filename):
     'writes a list or array to a csv file'
     f = open(filename, 'w')
     for i in range(len(array)):
-        if type(array[i]) == list or type(array[i]) == np.ndarray):
+        if type(array[i]) == list or type(array[i]) == np.ndarray:
             for j in range(len(array[i])-1):
                 f.write('{},'.format(array[i][j]))
             f.write('{}\n'.format(array[i][-1]))
@@ -103,7 +103,7 @@ class state(object):
         self.burstCount = 0
         self.burst = False
 
-        self.windSpeed = np.array([])
+        self.windSpeed = []
         for i in range(1,311):
             #wind vector: [alt, vx, vy, sum_vx, sum_vy, N]
             self.windSpeed.append([i * 100, 0, 0, 0, 0, 0])
@@ -197,7 +197,7 @@ class state(object):
         
         #read GPS
         data = [0,0]
-        ser = serial.Serial('/dev/ttyS0', 4800, timeout = 0)
+        ser = serial.Serial('/dev/ttyS0', 4800, timeout = 1)
         for i in [0,1]:
             data[i] = ser.readline().decode('ascii').strip()
             for char in data[i]:
