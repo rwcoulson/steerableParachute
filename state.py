@@ -30,6 +30,7 @@ def rotMatrix(axis, angle):
                           [0,         0          ,1]])
 
 def tiltCorrect(rawMag, rawG):
+    ###not working
     '''outputs normalized 2D orientation in horizontal plane [E, N]
     inputs are 3D [x, y, z] vectors'''
     mag = rawMag / np.linalg.norm(rawMag)
@@ -57,7 +58,7 @@ def csvWrite(array, filename):
     'writes a list or array to a csv file'
     f = open(filename, 'w')
     for i in range(len(array)):
-        if type(array[i] == list or array[i] == np.ndarray):
+        if type(array[i]) == list or type(array[i]) == np.ndarray):
             for j in range(len(array[i])-1):
                 f.write('{},'.format(array[i][j]))
             f.write('{}\n'.format(array[i][-1]))
@@ -75,7 +76,8 @@ def gps2m(target, coord):
     x = pi * r * cos(lat * pi / 180) * (dlong/180)
     return [x,y]
 
-def initError():    #initialize the error file
+def initFiles():    #initialize the error file
+    'initializes the error tracking file'
     f = open('error.csv','w')
     f.write("timestamp,seconds in flight,x,y,z,x',y',z'\n")
     f.close()
@@ -101,8 +103,8 @@ class state(object):
         self.burstCount = 0
         self.burst = False
 
-        self.windSpeed = []
-        for i in range(201):
+        self.windSpeed = np.array([])
+        for i in range(1,311):
             #wind vector: [alt, vx, vy, sum_vx, sum_vy, N]
             self.windSpeed.append([i * 100, 0, 0, 0, 0, 0])
         
@@ -116,7 +118,7 @@ class state(object):
         #set instrument variance
         self.R = csvReadMat('instVariance.csv')
 
-    def Amatrix(self, dt = 1, theta = 0):
+    def Amatrix(self, theta = 0):
         'updates A matrix for time elapsed'
         self.A = np.eye(6)
         for i in range(3):
@@ -178,6 +180,7 @@ class state(object):
         self.windSpeed[k][5] = N
         self.windSpeed[k][3] = 0
         self.windSpeed[k][4] = 0
+        #adds up all wind components up to here; used for navigation algorithm
         for i in range(k):
             self.windSpeed[k][3] += self.windSpeed[i][3]
             self.windSpeed[k][4] += self.windSpeed[i][4]
@@ -234,7 +237,7 @@ class state(object):
         self.measure()
         self.logWind()
         
-        if self.X[5][0] < 0:
+        if self.X[5][0] < 0 and self.X[2][0] > 500:
             self.burstCount += 1
             if self.burstCount >= 10:
                 self.burst = True
@@ -242,14 +245,13 @@ class state(object):
         else:
             self.burstCount = 0
 
-        sleep(0.5)
+        sleep(1.1)
             
 
     def descentLoop(self):
         'loop that runs during descent'
         self.measure()
         self.Amatrix()
-        Bu = self.Bmatrix(self.X[2][0])
         self.kFilter(self.X, self.P)
                
         if self.X[5][0] > 0:
@@ -257,10 +259,11 @@ class state(object):
             if self.burstCount <= -10:
                 self.burst = False
                 self.burstCount = 0
+                csvWrite(self.windSpeed, 'windSpeed.csv')
         else:
             self.burstCount = 0
 
-        sleep(0.5)
+        sleep(1.1)
 
     def acquireGPS(self):
         'waits until GPS lock is acquired'
@@ -278,8 +281,6 @@ class state(object):
 
 
 ##TO DO:
-        #   burst detect
-        #   integrate wind
         #   instrument variance
-        #   indicator LED
+        #   fix tilt corrections
         
