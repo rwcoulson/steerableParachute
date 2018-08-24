@@ -17,8 +17,8 @@ initFiles(directory)
 os.mkdir(directory)
 
 while True:
-    if s.burst = False:
+    if s.burst == False:
         s.ascentLoop(directory)
-    if s.burst = True:
+    if s.burst == True:
         s.descentLoop(directory)
         s.logError('{}/error.csv'.format(directory, flightID))
