@@ -76,10 +76,10 @@ def gps2m(target, coord):
     x = pi * r * cos(lat * pi / 180) * (dlong/180)
     return [x,y]
 
-def initFiles():    #initialize the error file
+def initFiles(directory):    #initialize the error file
     'initializes the error tracking file'
-    f = open('error.csv','w')
-    f.write("timestamp,seconds in flight,x,y,z,x',y',z'\n")
+    f = open('{}/error.csv'.format(directory),'w')
+    f.write("timestamp,seconds,x,y,z,x',y',z'\n")
     f.close()
 
 class state(object):
