@@ -110,7 +110,7 @@ class state(object):
         
         #initialize IMU and GPS objects
         self.mpu = MPU9250.MPU9250()
-        self.gps = MicropyGPS()
+        self.gps = MicropyGPS(-6) #-6 for Central Time; input is time zone offset
 
         #destination coordinates
         self.target = csvReadMat('target.csv').reshape([2])
@@ -152,10 +152,10 @@ class state(object):
         self.X = X
         self.P = P
 
-    def logError(self):
+    def logError(self, fname = 'error.csv'):
         'logs the error into a file'
         err = (self.X - self.Y).T
-        f = open('error.csv', 'a')
+        f = open(fname, 'a')
         f.write('{}:{}:{},'.format(self.gps.timestamp[0], self.gps.timestamp[1], self.gps.timestamp[2]))
         f.write('{},'.format(self.time))
         for i in range(5):
@@ -185,8 +185,9 @@ class state(object):
             self.windSpeed[k][3] += self.windSpeed[i][3]
             self.windSpeed[k][4] += self.windSpeed[i][4]
         
-    def measure(self):
-        'takes measurements and populates Y(measurement) vector'
+    def measure(self, logGPS = 'False'):
+        '''takes measurements and populates Y(measurement) vector
+        input filename to log GPS data to a file, or "False" to skip'''
         #read IMU
         m = self.mpu.readMagnet()
         a = self.mpu.readAccel()
@@ -200,6 +201,10 @@ class state(object):
         ser = serial.Serial('/dev/ttyS0', 4800, timeout = 1)
         for i in [0,1]:
             data[i] = ser.readline().decode('ascii').strip()
+            if logGPS != 'False':
+                f = open(logGPS,'a')
+                f.write('{}\n'.format(data[i]))
+                f.close()
             for char in data[i]:
                 self.gps.update(char)
         ser.close()
@@ -232,9 +237,9 @@ class state(object):
                 vz = self.X[5][0]
         self.Y = np.array([x, y, alt, vx, vy, vz]).reshape([6,1])
 
-    def ascentLoop(self):
+    def ascentLoop(self, directory = 'False'):
         'loop that runs during ascent'
-        self.measure()
+        self.measure('{}/raw_gps.csv'.format(directory))
         self.logWind()
         
         if self.X[5][0] < 0 and self.X[2][0] > 500:
@@ -242,24 +247,24 @@ class state(object):
             if self.burstCount >= 10:
                 self.burst = True
                 self.burstCount = 0
+                csvWrite(self.windSpeed, '{}/windSpeed.csv'.format(directory))
         else:
             self.burstCount = 0
 
         sleep(1.1)
             
 
-    def descentLoop(self):
+    def descentLoop(self, directory = 'False'):
         'loop that runs during descent'
-        self.measure()
+        self.measure('{}/raw_gps.csv'.format(directory))
         self.Amatrix()
         self.kFilter(self.X, self.P)
-               
         if self.X[5][0] > 0:
             self.burstCount -= 1
             if self.burstCount <= -10:
                 self.burst = False
                 self.burstCount = 0
-                csvWrite(self.windSpeed, 'windSpeed.csv')
+                
         else:
             self.burstCount = 0
 
